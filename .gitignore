@@ -1,0 +1,15 @@
+node_modules
+client/node_modules
+client/dist
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/backups/*
+!data/backups/.gitkeep
+uploads
+data/private
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
