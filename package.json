@@ -16,7 +16,7 @@
     "start:prod": "node server/index.js",
     "backup": "node server/scripts/backup.js",
     "set-admin-password": "node server/scripts/set-admin-password.js",
-    "postinstall": "npm install --prefix client"
+    "postinstall": "npm install --prefix client --include=dev"
   },
   "dependencies": {
     "express": "^5.1.0",
