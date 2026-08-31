@@ -33,6 +33,7 @@ const {
   paymentMethodLabel,
 } = require("./lib/hr");
 const { applySecurity, clientIp } = require("./lib/security");
+const { applyAdminPasswordReset } = require("./lib/adminPasswordReset");
 const {
   apiGuard,
   ensureBootstrapUsers,
@@ -1901,6 +1902,7 @@ app.use((err, req, res, _next) => {
 
 getDb();
 ensureBootstrapUsers();
+applyAdminPasswordReset();
 
 app.listen(PORT, HOST, () => {
   console.log(`OfficerFlow ${NODE_ENV} server listening on ${HOST}:${PORT}`);
