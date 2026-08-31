@@ -17,6 +17,7 @@
     "start:prod": "node server/index.js",
     "backup": "node server/scripts/backup.js",
     "set-admin-password": "node server/scripts/set-admin-password.js",
+    "reset-admin-password": "node server/scripts/reset-production-admin-password.js",
     "postinstall": "npm install --prefix client --include=dev"
   },
   "dependencies": {
