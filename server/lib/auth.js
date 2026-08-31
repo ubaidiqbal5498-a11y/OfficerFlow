@@ -12,8 +12,12 @@ const {
 const { parseCookies, serializeCookie, clientIp } = require("./security");
 
 const loginAttempts = new Map();
-const MAX_LOGIN_ATTEMPTS = 8;
+const MAX_LOGIN_ATTEMPTS = 20;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+
+function loginAttemptKey(ip, username) {
+  return `${String(ip || "unknown")}|${String(username || "").trim().toLowerCase()}`;
+}
 
 function db() {
   return getDb();
@@ -68,15 +72,22 @@ function unsignToken(value) {
   return raw;
 }
 
+function cookieSecureFlag({ isProd: prod, cookieSecureEnv, https }) {
+  const localHttpProd = prod && cookieSecureEnv === "false" && !https;
+  if (localHttpProd) return false;
+  return Boolean(prod || https || cookieSecureEnv === "true");
+}
+
 function cookieOptions(req) {
-  const headerProto = String(req?.headers?.["x-forwarded-proto"] || "").split(",")[0].trim();
-  const secureEnv = process.env.COOKIE_SECURE;
-  const secure =
-    secureEnv === "true" ||
-    (secureEnv !== "false" && isProd && (req?.secure || headerProto === "https"));
+  const headerProto = String(req?.headers?.["x-forwarded-proto"] || "").toLowerCase();
+  const https = headerProto.includes("https") || Boolean(req?.secure);
   return {
     httpOnly: true,
-    secure,
+    secure: cookieSecureFlag({
+      isProd,
+      cookieSecureEnv: process.env.COOKIE_SECURE,
+      https,
+    }),
     sameSite: "Lax",
     path: "/",
     maxAge: SESSION_DAYS * 24 * 60 * 60,
@@ -84,29 +95,39 @@ function cookieOptions(req) {
 }
 
 function setSessionCookie(res, token, req) {
-  res.setHeader("Set-Cookie", serializeCookie(COOKIE_NAME, signToken(token), cookieOptions(req)));
+  res.append("Set-Cookie", serializeCookie(COOKIE_NAME, signToken(token), cookieOptions(req)));
 }
 
 function clearSessionCookie(res, req) {
-  res.setHeader(
+  res.append(
     "Set-Cookie",
     serializeCookie(COOKIE_NAME, "", { ...cookieOptions(req), maxAge: 0 })
   );
 }
 
-function tooManyLogins(ip) {
-  const now = Date.now();
-  const rec = loginAttempts.get(ip);
-  if (!rec || rec.reset < now) {
-    loginAttempts.set(ip, { count: 1, reset: now + LOGIN_WINDOW_MS });
+function tooManyLogins(ip, username) {
+  const rec = loginAttempts.get(loginAttemptKey(ip, username));
+  if (!rec) return false;
+  if (rec.reset < Date.now()) {
+    loginAttempts.delete(loginAttemptKey(ip, username));
     return false;
   }
-  rec.count += 1;
-  return rec.count > MAX_LOGIN_ATTEMPTS;
+  return rec.count >= MAX_LOGIN_ATTEMPTS;
 }
 
-function clearLoginAttempts(ip) {
-  loginAttempts.delete(ip);
+function recordLoginFailure(ip, username) {
+  const key = loginAttemptKey(ip, username);
+  const now = Date.now();
+  const rec = loginAttempts.get(key);
+  if (!rec || rec.reset < now) {
+    loginAttempts.set(key, { count: 1, reset: now + LOGIN_WINDOW_MS });
+    return;
+  }
+  rec.count += 1;
+}
+
+function clearLoginAttempts(ip, username) {
+  loginAttempts.delete(loginAttemptKey(ip, username));
 }
 
 function createSession(userId) {
@@ -253,7 +274,10 @@ module.exports = {
   setSessionCookie,
   clearSessionCookie,
   tooManyLogins,
+  recordLoginFailure,
   clearLoginAttempts,
+  cookieSecureFlag,
+  cookieOptions,
   clientIp,
   apiGuard,
   ensureBootstrapUsers,

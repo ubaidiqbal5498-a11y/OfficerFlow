@@ -10,7 +10,9 @@ function allowedOrigins() {
 
 function applySecurity(app) {
   app.disable("x-powered-by");
-  app.set("trust proxy", require("../config").TRUST_PROXY ? 1 : false);
+  // Railway sits behind more than one proxy. Using 1 can make every visitor
+  // share the same IP, which then trips the login rate limiter for everyone.
+  app.set("trust proxy", require("../config").TRUST_PROXY ? (isProd ? 2 : 1) : false);
 
   app.use((req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -90,9 +92,10 @@ function serializeCookie(name, value, options = {}) {
 }
 
 function clientIp(req) {
+  if (req.ip) return String(req.ip);
   const forwarded = req.headers["x-forwarded-for"];
   if (forwarded) return String(forwarded).split(",")[0].trim();
-  return req.ip || req.socket?.remoteAddress || "unknown";
+  return req.socket?.remoteAddress || "unknown";
 }
 
 module.exports = {

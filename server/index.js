@@ -46,6 +46,7 @@ const {
   setSessionCookie,
   clearSessionCookie,
   tooManyLogins,
+  recordLoginFailure,
   clearLoginAttempts,
   validateCredentials,
 } = require("./lib/auth");
@@ -245,20 +246,21 @@ app.get("/api/health", (_req, res) => {
 
 app.post("/api/auth/login", (req, res) => {
   const ip = clientIp(req);
-  if (tooManyLogins(ip)) {
-    return res.status(429).json({ error: "Too many sign-in attempts. Try again in 15 minutes." });
-  }
   const username = String(req.body?.username || "").trim();
   const password = String(req.body?.password || "");
+  if (tooManyLogins(ip, username)) {
+    return res.status(429).json({ error: "Too many sign-in attempts. Try again in 15 minutes." });
+  }
   const invalid = validateCredentials(username, password);
   if (invalid) return res.status(400).json({ error: invalid });
   const row = db()
     .prepare("SELECT * FROM users WHERE username = ?")
     .get(username.toLowerCase());
   if (!row || !row.active || !verifyPassword(password, row.password_hash)) {
+    recordLoginFailure(ip, username);
     return res.status(401).json({ error: "Invalid username or password." });
   }
-  clearLoginAttempts(ip);
+  clearLoginAttempts(ip, username);
   const token = createSession(row.id);
   setSessionCookie(res, token, req);
   logAudit("user_login", null, { username: row.username }, row.username);
