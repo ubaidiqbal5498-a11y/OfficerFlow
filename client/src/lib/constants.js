@@ -6,11 +6,12 @@ export const EMPLOYMENT_STATUSES = [
 ];
 
 export const PAYMENT_METHODS = [
-  { id: "cash", label: "Cash" },
-  { id: "bank_transfer", label: "Bank Transfer" },
+  { id: "bank_account", label: "Bank Account" },
   { id: "easypaisa", label: "Easypaisa" },
   { id: "jazzcash", label: "JazzCash" },
+  { id: "cash", label: "Cash" },
   { id: "other", label: "Other" },
+  { id: "bank_transfer", label: "Bank Account" },
 ];
 
 export const SALARY_STATUSES = [

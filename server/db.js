@@ -107,6 +107,11 @@ function migrate(database) {
       payment_method TEXT,
       salary_status TEXT NOT NULL DEFAULT 'active',
       salary_effective_date TEXT,
+      account_name TEXT,
+      bank_name TEXT,
+      account_number TEXT,
+      iban TEXT,
+      payment_mobile TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
     );
@@ -262,6 +267,11 @@ function migrateExistingSchema(database) {
     ["payment_method", "TEXT"],
     ["salary_status", "TEXT"],
     ["salary_effective_date", "TEXT"],
+    ["account_name", "TEXT"],
+    ["bank_name", "TEXT"],
+    ["account_number", "TEXT"],
+    ["iban", "TEXT"],
+    ["payment_mobile", "TEXT"],
   ];
   for (const [name, def] of officerColumns) {
     addColumnIfMissing(database, "officers", name, def);
@@ -318,7 +328,8 @@ function rebuildOfficersTable(database) {
     "leaving_date", "leaving_reason", "notes", "working_hours_per_day", "photo_path",
     "father_name", "date_of_birth", "whatsapp", "email", "address", "emergency_contact_name",
     "emergency_contact_phone", "supervisor_id", "payment_method", "salary_status",
-    "salary_effective_date", "created_at", "updated_at",
+    "salary_effective_date", "account_name", "bank_name", "account_number", "iban",
+    "payment_mobile", "created_at", "updated_at",
   ];
   const existing = database.prepare("PRAGMA table_info(officers)").all().map((c) => c.name);
   const shared = targetColumns.filter((name) => existing.includes(name));
@@ -355,6 +366,11 @@ function rebuildOfficersTable(database) {
       payment_method TEXT,
       salary_status TEXT NOT NULL DEFAULT 'active',
       salary_effective_date TEXT,
+      account_name TEXT,
+      bank_name TEXT,
+      account_number TEXT,
+      iban TEXT,
+      payment_mobile TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
     )

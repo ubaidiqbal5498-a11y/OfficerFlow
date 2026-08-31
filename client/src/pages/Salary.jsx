@@ -3,6 +3,7 @@ import { api } from "../api";
 import { useToast } from "../components/Toast.jsx";
 import { Field } from "../components/Ui.jsx";
 import { MONTHS, formatDuration, formatMoney, todayISO } from "../lib/format.js";
+import { formatPaymentAccount, paymentMethodLabel } from "../lib/paymentAccount.js";
 import { useAuth } from "../auth.jsx";
 
 export default function Salary() {
@@ -81,7 +82,7 @@ export default function Salary() {
         ...row,
         paid: 1,
         payment_date: row.payment_date || todayISO(),
-        payment_method: row.payment_method || "Bank",
+        payment_method: row.payment_method || row.payment_method_label || "Bank Account",
       });
       toast("Marked as paid.");
       await loadPayments();
@@ -140,7 +141,7 @@ export default function Salary() {
             <thead>
               <tr>
                 <th>Officer</th><th>Basic</th><th>Present</th><th>Absent</th><th>Leave</th><th>Half</th>
-                <th>OT hrs</th><th>Deductions</th><th>Bonuses</th><th>Net</th><th></th>
+                <th>OT hrs</th><th>Deductions</th><th>Bonuses</th><th>Net</th><th>Pay to</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -160,6 +161,7 @@ export default function Salary() {
                     <input type="number" value={row.bonuses} onChange={(e) => editDraft(index, "bonuses", e.target.value)} />
                   </td>
                   <td><strong>{formatMoney(row.net_salary)}</strong></td>
+                  <td>{formatPaymentAccount(row) || paymentMethodLabel(row.payment_method)}</td>
                   <td className="row-actions">
                     <button className="btn btn-ghost" onClick={() => saveDraft(row)}>Save</button>
                     <button className="btn btn-primary" onClick={() => markPaid({ ...row, paid: 1 })}>Mark paid</button>
@@ -177,12 +179,12 @@ export default function Salary() {
           <thead>
             <tr>
               <th>Officer</th><th>Period</th><th>Basic</th><th>Deductions</th><th>Bonuses</th>
-              <th>Net</th><th>Status</th><th>Payment date</th><th>Method</th>
+              <th>Net</th><th>Status</th><th>Payment date</th><th>Method</th><th>Account</th>
             </tr>
           </thead>
           <tbody>
             {payments.length === 0 ? (
-              <tr><td colSpan="9">No salary records for this period yet.</td></tr>
+              <tr><td colSpan="10">No salary records for this period yet.</td></tr>
             ) : payments.map((row) => (
               <tr key={row.id}>
                 <td>{row.officer_name}</td>
@@ -193,7 +195,8 @@ export default function Salary() {
                 <td>{formatMoney(row.net_salary)}</td>
                 <td>{row.paid ? "Paid" : "Pending"}</td>
                 <td>{row.payment_date || "—"}</td>
-                <td>{row.payment_method || "—"}</td>
+                <td>{row.payment_method || paymentMethodLabel(row.officer_payment_method) || "—"}</td>
+                <td>{formatPaymentAccount(row) || row.bank_details || "—"}</td>
               </tr>
             ))}
           </tbody>

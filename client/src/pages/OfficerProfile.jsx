@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, officerLabel } from "../api";
 import { useToast } from "../components/Toast.jsx";
 import { Avatar, Badge, EmptyState, Field, Modal } from "../components/Ui.jsx";
-import { ATTENDANCE_STATUSES, DOCUMENT_TYPES, EMPLOYMENT_STATUSES, PAYMENT_METHODS } from "../lib/constants.js";
+import { ATTENDANCE_STATUSES, DOCUMENT_TYPES, EMPLOYMENT_STATUSES } from "../lib/constants.js";
+import {
+  formatPaymentAccount,
+  paymentMethodLabel,
+  validatePaymentAccountForm,
+} from "../lib/paymentAccount.js";
+import { PaymentAccountSection } from "../components/PaymentAccountFields.jsx";
 import { formatDate, formatDateTime, formatDuration, formatMoney, lateLabel, statusLabel, weekday, MONTHS, todayISO } from "../lib/format.js";
 import { previewAttendance } from "../lib/attendanceMetrics.js";
 import { useAuth } from "../auth.jsx";
@@ -12,6 +18,7 @@ const TABS = [
   ["overview", "Overview"],
   ["personal", "Personal Details"],
   ["employment", "Employment"],
+  ["payment", "Payment Account Details"],
   ["attendance", "Attendance"],
   ["salary", "Salary"],
   ["documents", "Documents"],
@@ -20,18 +27,34 @@ const TABS = [
 
 export default function OfficerProfile() {
   const { id } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const toast = useToast();
   const { isAdmin } = useAuth();
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
-  const [tab, setTab] = useState("overview");
-  const [lookups, setLookups] = useState({ shifts: [] });
+  const [tab, setTab] = useState(
+    location.hash === "#payment" || new URLSearchParams(location.search).get("tab") === "payment"
+      ? "payment"
+      : "overview"
+  );
+  const [lookups, setLookups] = useState({ shifts: [], banks: [] });
   const now = todayISO().split("-");
   const [attFilters, setAttFilters] = useState({ month: String(Number(now[1])), year: now[0], status: "" });
   const [editRow, setEditRow] = useState(null);
   const [docType, setDocType] = useState("other");
   const [uploading, setUploading] = useState(false);
+  const [payForm, setPayForm] = useState({
+    payment_method: "",
+    account_name: "",
+    bank_name: "",
+    account_number: "",
+    iban: "",
+    payment_mobile: "",
+  });
+  const [payErrors, setPayErrors] = useState({});
+  const [savingPay, setSavingPay] = useState(false);
+  const [payReady, setPayReady] = useState(false);
 
   async function load(filters = attFilters) {
     const params = new URLSearchParams();
@@ -48,7 +71,28 @@ export default function OfficerProfile() {
 
   useEffect(() => {
     load().catch((e) => setError(e.message));
+    setPayReady(false);
   }, [id]);
+
+  useEffect(() => {
+    if (location.hash === "#payment" || new URLSearchParams(location.search).get("tab") === "payment") {
+      setTab("payment");
+    }
+  }, [location.hash, location.search]);
+
+  useEffect(() => {
+    const row = data?.officer;
+    if (!row || payReady) return;
+    setPayForm({
+      payment_method: row.payment_method || "",
+      account_name: row.account_name || "",
+      bank_name: row.bank_name || "",
+      account_number: row.account_number || "",
+      iban: row.iban || "",
+      payment_mobile: row.payment_mobile || "",
+    });
+    setPayReady(true);
+  }, [data, payReady]);
 
   if (error) {
     return (
@@ -68,6 +112,54 @@ export default function OfficerProfile() {
         <span>{label}</span>
         <strong>{value || "—"}</strong>
       </div>
+    );
+  }
+
+  function setPay(field, value) {
+    setPayForm((f) => ({ ...f, [field]: value }));
+    setPayErrors((e) => ({ ...e, [field]: "" }));
+  }
+
+  async function savePay(e) {
+    e?.preventDefault?.();
+    const next = validatePaymentAccountForm(payForm);
+    setPayErrors(next);
+    if (Object.keys(next).length) {
+      setTab("payment");
+      toast(Object.values(next)[0], "error");
+      return;
+    }
+    setSavingPay(true);
+    try {
+      const saved = await api.updatePaymentAccount(id, payForm);
+      setPayForm({
+        payment_method: saved.payment_method || "",
+        account_name: saved.account_name || "",
+        bank_name: saved.bank_name || "",
+        account_number: saved.account_number || "",
+        iban: saved.iban || "",
+        payment_mobile: saved.payment_mobile || "",
+      });
+      toast("Payment details saved.");
+      await load();
+    } catch (err) {
+      toast(err.message, "error");
+    } finally {
+      setSavingPay(false);
+    }
+  }
+
+  function paymentSection() {
+    return (
+      <PaymentAccountSection
+        form={payForm}
+        onChange={setPay}
+        errors={payErrors}
+        banks={lookups.banks}
+        onSave={isAdmin ? savePay : undefined}
+        saving={savingPay}
+        canSave={isAdmin}
+      />
     );
   }
 
@@ -120,6 +212,7 @@ export default function OfficerProfile() {
           <Badge status={officer.status} />
           <div className="row-actions" style={{ marginTop: 10 }}>
             {isAdmin ? <button className="btn btn-ghost" onClick={() => navigate(`/officers/${id}/edit`)}>Edit</button> : null}
+            {isAdmin ? <button className="btn btn-primary" onClick={() => setTab("payment")}>Payment details</button> : null}
             <Link className="btn btn-ghost" to="/attendance">Mark attendance</Link>
           </div>
         </div>
@@ -133,6 +226,7 @@ export default function OfficerProfile() {
 
       {tab === "overview" && (
         <>
+          {paymentSection()}
           <h3>Attendance summary</h3>
           <div className="grid-stats">
             <div className="stat green"><span>Present days</span><strong>{stats.present}</strong></div>
@@ -183,6 +277,8 @@ export default function OfficerProfile() {
           {kv("Notes", officer.notes)}
         </div>
       )}
+
+      {tab === "payment" && paymentSection()}
 
       {tab === "attendance" && (
         <>
@@ -244,8 +340,12 @@ export default function OfficerProfile() {
             {kv("Daily salary", formatMoney(officer.daily_salary))}
             {kv("Hourly rate", formatMoney(officer.hourly_rate))}
             {kv("Salary effective date", formatDate(officer.salary_effective_date || data.salaryHistory[0]?.effective_date))}
-            {kv("Payment method", PAYMENT_METHODS.find((m) => m.id === officer.payment_method)?.label || officer.payment_method_label)}
-            {kv("Payment account", officer.bank_details)}
+            {kv("Payment method", paymentMethodLabel(officer.payment_method))}
+            {kv("Account title", officer.account_name)}
+            {kv("Bank name", officer.bank_name)}
+            {kv("Account number", officer.account_number)}
+            {kv("IBAN", officer.iban)}
+            {kv("Mobile number", officer.payment_mobile)}
           </div>
           <div className="card table-wrap">
             <div className="card-pad"><strong>Salary history</strong><p style={{ margin: "6px 0 0", color: "#5c6b80" }}>Previous amounts are never overwritten.</p></div>
@@ -269,16 +369,17 @@ export default function OfficerProfile() {
           <div className="card table-wrap full">
             <div className="card-pad"><strong>Salary payments</strong></div>
             <table>
-              <thead><tr><th>Period</th><th>Net</th><th>Paid</th><th>Date</th></tr></thead>
+              <thead><tr><th>Period</th><th>Net</th><th>Paid</th><th>Date</th><th>Paid to</th></tr></thead>
               <tbody>
                 {data.payments.length === 0 ? (
-                  <tr><td colSpan="4">No salary payments yet.</td></tr>
+                  <tr><td colSpan="5">No salary payments yet.</td></tr>
                 ) : data.payments.map((row) => (
                   <tr key={row.id}>
                     <td>{row.month}/{row.year}</td>
                     <td>{formatMoney(row.net_salary)}</td>
                     <td>{row.paid ? "Paid" : "Pending"}</td>
                     <td>{formatDate(row.payment_date)}</td>
+                    <td>{formatPaymentAccount(officer) || paymentMethodLabel(officer.payment_method)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -12,7 +12,7 @@
     "dev:client": "npm run dev --prefix client",
     "dev:client:install": "npm install --prefix client",
     "build": "npm run build --prefix client",
-    "test": "node --test server/lib/loginSecurity.test.js server/lib/adminPasswordReset.test.js",
+    "test": "node --test server/lib/loginSecurity.test.js server/lib/adminPasswordReset.test.js server/lib/paymentAccount.test.js",
     "start": "node server/index.js",
     "start:prod": "node server/index.js",
     "backup": "node server/scripts/backup.js",

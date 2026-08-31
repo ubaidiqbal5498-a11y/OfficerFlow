@@ -1,11 +1,16 @@
+const {
+  ACCOUNT_PAYMENT_METHODS,
+  LEGACY_PAYMENT_METHODS,
+  PAKISTANI_BANKS,
+  normalizePaymentMethod,
+} = require("./paymentAccount");
+
 const EMPLOYMENT_STATUSES = ["active", "inactive", "resigned", "terminated"];
 
 const PAYMENT_METHODS = [
-  { id: "cash", label: "Cash" },
-  { id: "bank_transfer", label: "Bank Transfer" },
-  { id: "easypaisa", label: "Easypaisa" },
-  { id: "jazzcash", label: "JazzCash" },
-  { id: "other", label: "Other" },
+  ...ACCOUNT_PAYMENT_METHODS,
+  ...LEGACY_PAYMENT_METHODS,
+  { id: "bank_transfer", label: "Bank Account" },
 ];
 
 const SALARY_STATUSES = [
@@ -37,12 +42,16 @@ function nextEmployeeCode(database) {
 }
 
 function paymentMethodLabel(id) {
-  return PAYMENT_METHODS.find((m) => m.id === id)?.label || id || "—";
+  const method = normalizePaymentMethod(id);
+  return PAYMENT_METHODS.find((m) => m.id === method || m.id === id)?.label || method || id || "—";
 }
 
 module.exports = {
   EMPLOYMENT_STATUSES,
   PAYMENT_METHODS,
+  ACCOUNT_PAYMENT_METHODS,
+  LEGACY_PAYMENT_METHODS,
+  PAKISTANI_BANKS,
   SALARY_STATUSES,
   DOCUMENT_TYPES,
   isActiveEmployment,

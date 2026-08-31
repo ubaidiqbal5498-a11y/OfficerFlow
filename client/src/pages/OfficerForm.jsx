@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { useToast } from "../components/Toast.jsx";
 import { Avatar, Field } from "../components/Ui.jsx";
-import { DOCUMENT_TYPES, EMPLOYMENT_STATUSES, PAYMENT_METHODS, SALARY_STATUSES } from "../lib/constants.js";
+import { DOCUMENT_TYPES, EMPLOYMENT_STATUSES, SALARY_STATUSES } from "../lib/constants.js";
+import {
+  emptyPaymentAccount,
+  formatPaymentAccount,
+  paymentMethodLabel,
+  validatePaymentAccountForm,
+} from "../lib/paymentAccount.js";
+import { PaymentAccountSection } from "../components/PaymentAccountFields.jsx";
 import { formatMoney, todayISO } from "../lib/format.js";
 
-const STEPS = ["Personal", "Employment", "Salary", "Documents", "Review"];
+const STEPS = ["Personal", "Employment", "Payment Account Details", "Salary", "Documents", "Review"];
 
 const emptyForm = {
   name: "",
@@ -33,8 +40,7 @@ const emptyForm = {
   salary_type: "monthly",
   salary_effective_date: todayISO(),
   salary_change_notes: "",
-  payment_method: "cash",
-  bank_details: "",
+  ...emptyPaymentAccount(),
   salary_status: "active",
   working_hours_per_day: "10",
 };
@@ -42,6 +48,7 @@ const emptyForm = {
 export default function OfficerForm() {
   const { id } = useParams();
   const editing = Boolean(id);
+  const location = useLocation();
   const navigate = useNavigate();
   const toast = useToast();
   const [step, setStep] = useState(0);
@@ -50,12 +57,17 @@ export default function OfficerForm() {
   const [officers, setOfficers] = useState([]);
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
+  const [savingPay, setSavingPay] = useState(false);
   const [photoFile, setPhotoFile] = useState(null);
   const [queuedDocs, setQueuedDocs] = useState([]);
   const [existingDocs, setExistingDocs] = useState([]);
   const [officer, setOfficer] = useState(null);
   const [docType, setDocType] = useState("cnic_front");
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (location.hash === "#payment") setStep(2);
+  }, [location.hash]);
 
   useEffect(() => {
     async function boot() {
@@ -73,7 +85,12 @@ export default function OfficerForm() {
           supervisor_id: row.supervisor_id || "",
           salary: row.salary ?? "",
           salary_effective_date: row.salary_effective_date || todayISO(),
-          payment_method: row.payment_method || "cash",
+          payment_method: row.payment_method || "",
+          account_name: row.account_name || "",
+          bank_name: row.bank_name || "",
+          account_number: row.account_number || "",
+          iban: row.iban || "",
+          payment_mobile: row.payment_mobile || "",
           salary_status: row.salary_status || "active",
         });
         setExistingDocs(await api.documents(id));
@@ -113,6 +130,9 @@ export default function OfficerForm() {
       if (!form.status) next.status = "Employment status is required.";
     }
     if (index === 2) {
+      Object.assign(next, validatePaymentAccountForm(form));
+    }
+    if (index === 3) {
       if (form.salary === "" || form.salary == null) next.salary = "Salary is required.";
       else if (Number(form.salary) < 0) next.salary = "Salary cannot be negative.";
     }
@@ -126,8 +146,16 @@ export default function OfficerForm() {
   }
 
   async function save() {
-    if (!validateStep(0) || !validateStep(1) || !validateStep(2)) {
-      setStep(!form.name.trim() ? 0 : !form.officer_code || !form.designation || !form.shift_id ? 1 : 2);
+    if (!validateStep(0) || !validateStep(1) || !validateStep(2) || !validateStep(3)) {
+      setStep(
+        !form.name.trim()
+          ? 0
+          : !form.officer_code || !form.designation || !form.shift_id
+            ? 1
+            : Object.keys(validatePaymentAccountForm(form)).length
+              ? 2
+              : 3
+      );
       return;
     }
     setSaving(true);
@@ -138,7 +166,12 @@ export default function OfficerForm() {
         shift_id: form.shift_id || null,
         supervisor_id: form.supervisor_id || null,
         salary: Number(form.salary) || 0,
-        payment_account: form.bank_details,
+        payment_method: form.payment_method || null,
+        account_name: form.account_name,
+        bank_name: form.bank_name,
+        account_number: form.account_number,
+        iban: form.iban,
+        payment_mobile: form.payment_mobile,
       };
       let saved;
       if (editing) saved = await api.updateOfficer(id, payload);
@@ -154,6 +187,33 @@ export default function OfficerForm() {
       toast(err.message, "error");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function savePaymentDetails() {
+    if (!editing) {
+      toast("Save the officer first, then you can update payment details here.");
+      return;
+    }
+    const next = validatePaymentAccountForm(form);
+    setErrors(next);
+    if (Object.keys(next).length) return;
+    setSavingPay(true);
+    try {
+      await api.updatePaymentAccount(id, {
+        payment_method: form.payment_method || null,
+        account_name: form.account_name,
+        bank_name: form.bank_name,
+        account_number: form.account_number,
+        iban: form.iban,
+        payment_mobile: form.payment_mobile,
+      });
+      toast("Payment details saved.");
+    } catch (err) {
+      setErrors({ form: err.message });
+      toast(err.message, "error");
+    } finally {
+      setSavingPay(false);
     }
   }
 
@@ -281,6 +341,18 @@ export default function OfficerForm() {
         )}
 
         {step === 2 && (
+          <PaymentAccountSection
+            form={form}
+            onChange={set}
+            errors={errors}
+            banks={lookups.banks}
+            onSave={savePaymentDetails}
+            saving={savingPay}
+            canSave
+          />
+        )}
+
+        {step === 3 && (
           <div className="form-grid">
             <Field label="Monthly salary *" error={errors.salary}>
               <input type="number" min="0" step="0.01" value={form.salary} onChange={(e) => set("salary", e.target.value)} />
@@ -299,14 +371,6 @@ export default function OfficerForm() {
                 <input value={form.salary_change_notes} onChange={(e) => set("salary_change_notes", e.target.value)} placeholder="Previous amount is kept in history" />
               </Field>
             ) : null}
-            <Field label="Payment method">
-              <select value={form.payment_method} onChange={(e) => set("payment_method", e.target.value)}>
-                {PAYMENT_METHODS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-              </select>
-            </Field>
-            <Field label="Bank / payment account">
-              <input value={form.bank_details} onChange={(e) => set("bank_details", e.target.value)} />
-            </Field>
             <Field label="Salary status">
               <select value={form.salary_status} onChange={(e) => set("salary_status", e.target.value)}>
                 {SALARY_STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
@@ -315,7 +379,7 @@ export default function OfficerForm() {
           </div>
         )}
 
-        {step === 3 && (
+        {step === 4 && (
           <div>
             <p style={{ color: "#5c6b80", marginTop: 0 }}>Files are stored privately for this officer only. You can also add them after saving.</p>
             <div className="filters" style={{ marginBottom: 12 }}>
@@ -365,7 +429,7 @@ export default function OfficerForm() {
           </div>
         )}
 
-        {step === 4 && (
+        {step === 5 && (
           <div className="review-grid">
             <div>
               <h3>Personal</h3>
@@ -379,9 +443,13 @@ export default function OfficerForm() {
               <p>Joined {form.joining_date}</p>
             </div>
             <div>
+              <h3>Payment account</h3>
+              <p>{paymentMethodLabel(form.payment_method)}</p>
+              <p>{formatPaymentAccount(form) || "No payment account yet"}</p>
+            </div>
+            <div>
               <h3>Salary</h3>
               <p>{formatMoney(form.salary)} / {form.salary_type}</p>
-              <p>{PAYMENT_METHODS.find((m) => m.id === form.payment_method)?.label}</p>
             </div>
             <div>
               <h3>Documents</h3>

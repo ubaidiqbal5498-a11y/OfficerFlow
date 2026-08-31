@@ -59,6 +59,7 @@ export const api = {
   officer: (id) => request(`/officers/${id}`),
   createOfficer: (body) => request("/officers", { method: "POST", body }),
   updateOfficer: (id, body) => request(`/officers/${id}`, { method: "PUT", body }),
+  updatePaymentAccount: (id, body) => request(`/officers/${id}/payment-account`, { method: "PUT", body }),
   deactivateOfficer: (id, body) => request(`/officers/${id}/deactivate`, { method: "POST", body }),
   profile: (id, params = "") => request(`/officers/${id}/profile${params}`),
   uploadPhoto: (id, file) => {

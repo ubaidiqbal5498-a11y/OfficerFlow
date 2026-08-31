@@ -196,6 +196,7 @@ function isAdminOnly(method, pathname) {
 
   if (pathname === "/api/officers" && method === "POST") return true;
   if (/^\/api\/officers\/\d+$/.test(pathname) && method === "PUT") return true;
+  if (/^\/api\/officers\/\d+\/payment-account$/.test(pathname) && method === "PUT") return true;
   if (/^\/api\/officers\/\d+\/deactivate$/.test(pathname)) return true;
   if (/^\/api\/officers\/\d+\/photo$/.test(pathname) && method === "POST") return true;
   if (/^\/api\/officers\/\d+\/documents(\/\d+)?$/.test(pathname) && method !== "GET") return true;

@@ -25,13 +25,20 @@ const { validateOfficer, ATTENDANCE_STATUSES } = require("./lib/validation");
 const { salaryRates, officerOvertimeAfter } = require("./lib/rates");
 const {
   EMPLOYMENT_STATUSES,
-  PAYMENT_METHODS,
+  ACCOUNT_PAYMENT_METHODS,
+  PAKISTANI_BANKS,
   SALARY_STATUSES,
   DOCUMENT_TYPES,
   isActiveEmployment,
   nextEmployeeCode,
   paymentMethodLabel,
 } = require("./lib/hr");
+const {
+  paymentAccountFromBody,
+  composeBankDetails,
+  formatPaymentAccountSummary,
+  normalizePaymentMethod,
+} = require("./lib/paymentAccount");
 const { applySecurity, clientIp } = require("./lib/security");
 const { applyAdminPasswordReset } = require("./lib/adminPasswordReset");
 const {
@@ -84,15 +91,37 @@ function settings() {
 function officerRow(row) {
   if (!row) return null;
   const rates = salaryRates(row, settings());
+  const payment_method = normalizePaymentMethod(row.payment_method) || row.payment_method || "";
   return {
     ...row,
     ...rates,
     is_night: row.is_night ? 1 : 0,
     has_photo: Boolean(row.photo_path),
     photo_url: row.photo_path ? `/api/officers/${row.id}/photo` : null,
+    payment_method,
     payment_method_label: paymentMethodLabel(row.payment_method),
+    payment_account_summary: formatPaymentAccountSummary({ ...row, payment_method }),
     is_active: isActiveEmployment(row.status),
   };
+}
+
+function paymentAccountValues(body, previous = {}) {
+  const merged = { ...previous, ...body };
+  const account = paymentAccountFromBody(merged);
+  const payment_method = account.payment_method || null;
+  const values = {
+    payment_method,
+    account_name: account.account_name || null,
+    bank_name: account.bank_name || null,
+    account_number: account.account_number || null,
+    iban: account.iban || null,
+    payment_mobile: account.payment_mobile || null,
+  };
+  values.bank_details =
+    composeBankDetails({ ...values, bank_details: merged.bank_details }) ||
+    blankToNull(merged.bank_details) ||
+    blankToNull(merged.payment_account);
+  return values;
 }
 
 function getShift(shiftId) {
@@ -444,7 +473,8 @@ app.get("/api/lookups", (req, res) => {
     shifts,
     statuses: ATTENDANCE_STATUSES,
     employment_statuses: EMPLOYMENT_STATUSES,
-    payment_methods: PAYMENT_METHODS,
+    payment_methods: ACCOUNT_PAYMENT_METHODS,
+    banks: PAKISTANI_BANKS,
     salary_statuses: SALARY_STATUSES,
     document_types: DOCUMENT_TYPES,
     settings: req.user?.role === "admin"
@@ -794,6 +824,7 @@ app.post("/api/officers", (req, res) => {
   const body = { ...req.body, officer_code: req.body.officer_code || nextEmployeeCode(db()) };
   const errors = validateOfficer(body);
   if (errors.length) return res.status(400).json({ error: errors[0], errors });
+  const pay = paymentAccountValues(body);
   try {
     const info = db()
       .prepare(
@@ -803,8 +834,9 @@ app.post("/api/officers", (req, res) => {
           status, leaving_date, leaving_reason, notes, working_hours_per_day,
           father_name, date_of_birth, whatsapp, email, address,
           emergency_contact_name, emergency_contact_phone, supervisor_id,
-          payment_method, salary_status, salary_effective_date
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          payment_method, salary_status, salary_effective_date,
+          account_name, bank_name, account_number, iban, payment_mobile
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         body.name.trim(),
@@ -817,7 +849,7 @@ app.post("/api/officers", (req, res) => {
         body.joining_date,
         Number(body.salary) || 0,
         body.salary_type || "monthly",
-        blankToNull(body.bank_details) || blankToNull(body.payment_account),
+        pay.bank_details,
         blankToNull(body.emergency_contact_name) || blankToNull(body.emergency_contact),
         body.status || "active",
         blankToNull(body.leaving_date),
@@ -834,9 +866,14 @@ app.post("/api/officers", (req, res) => {
         blankToNull(body.emergency_contact_name),
         blankToNull(body.emergency_contact_phone) || blankToNull(body.emergency_contact),
         body.supervisor_id || null,
-        blankToNull(body.payment_method) || "cash",
+        pay.payment_method,
         blankToNull(body.salary_status) || "active",
-        blankToNull(body.salary_effective_date) || body.joining_date
+        blankToNull(body.salary_effective_date) || body.joining_date,
+        pay.account_name,
+        pay.bank_name,
+        pay.account_number,
+        pay.iban,
+        pay.payment_mobile
       );
     const id = Number(info.lastInsertRowid);
     insertSalaryHistory({
@@ -873,6 +910,7 @@ app.put("/api/officers/:id", (req, res) => {
   if (body.status !== "active" && !body.leaving_date) {
     body.leaving_date = localISODate();
   }
+  const pay = paymentAccountValues(body, existing);
   try {
     db()
       .prepare(
@@ -883,6 +921,7 @@ app.put("/api/officers/:id", (req, res) => {
           father_name=?, date_of_birth=?, whatsapp=?, email=?, address=?,
           emergency_contact_name=?, emergency_contact_phone=?, supervisor_id=?,
           payment_method=?, salary_status=?, salary_effective_date=?,
+          account_name=?, bank_name=?, account_number=?, iban=?, payment_mobile=?,
           updated_at=datetime('now','localtime')
          WHERE id=?`
       )
@@ -897,7 +936,7 @@ app.put("/api/officers/:id", (req, res) => {
         body.joining_date,
         Number(body.salary) || 0,
         body.salary_type || "monthly",
-        blankToNull(body.bank_details) || blankToNull(body.payment_account),
+        pay.bank_details,
         blankToNull(body.emergency_contact_name) || blankToNull(body.emergency_contact),
         body.status || "active",
         blankToNull(body.leaving_date),
@@ -914,9 +953,14 @@ app.put("/api/officers/:id", (req, res) => {
         blankToNull(body.emergency_contact_name),
         blankToNull(body.emergency_contact_phone),
         body.supervisor_id || null,
-        blankToNull(body.payment_method),
+        pay.payment_method,
         blankToNull(body.salary_status) || "active",
         blankToNull(body.salary_effective_date) || existing.salary_effective_date,
+        pay.account_name,
+        pay.bank_name,
+        pay.account_number,
+        pay.iban,
+        pay.payment_mobile,
         req.params.id
       );
 
@@ -966,6 +1010,34 @@ app.put("/api/officers/:id", (req, res) => {
     }
     res.status(500).json({ error: "Could not update officer." });
   }
+});
+
+app.put("/api/officers/:id/payment-account", (req, res) => {
+  const existing = db().prepare("SELECT * FROM officers WHERE id = ?").get(req.params.id);
+  if (!existing) return res.status(404).json({ error: "Officer not found." });
+  const errors = validateOfficer({ ...existing, ...req.body }, { isUpdate: true });
+  if (errors.length) return res.status(400).json({ error: errors[0], errors });
+  const pay = paymentAccountValues(req.body, existing);
+  db()
+    .prepare(
+      `UPDATE officers SET
+        payment_method=?, account_name=?, bank_name=?, account_number=?, iban=?,
+        payment_mobile=?, bank_details=?, updated_at=datetime('now','localtime')
+       WHERE id=?`
+    )
+    .run(
+      pay.payment_method,
+      pay.account_name,
+      pay.bank_name,
+      pay.account_number,
+      pay.iban,
+      pay.payment_mobile,
+      pay.bank_details,
+      existing.id
+    );
+  logAudit("officer_edited", existing.id, { payment_account: "updated" }, actorName(req));
+  const row = db().prepare(`${officerJoin("o")} WHERE o.id = ?`).get(existing.id);
+  res.json(officerRow(row));
 });
 
 app.post("/api/officers/:id/deactivate", (req, res) => {
@@ -1351,6 +1423,14 @@ function calculateSalaryDraft(officerId, year, month) {
     daily_salary: rates.daily_salary,
     hourly_rate: rates.hourly_rate,
     working_hours_per_day: rates.working_hours_per_day,
+    payment_method: normalizePaymentMethod(officer.payment_method) || officer.payment_method || null,
+    payment_method_label: paymentMethodLabel(officer.payment_method),
+    payment_account_summary: formatPaymentAccountSummary(officer),
+    account_name: officer.account_name || null,
+    bank_name: officer.bank_name || null,
+    account_number: officer.account_number || null,
+    iban: officer.iban || null,
+    payment_mobile: officer.payment_mobile || null,
   };
 }
 
@@ -1411,7 +1491,9 @@ app.get("/api/salary/payments", (req, res) => {
     params.push(officer_id);
   }
   const sql = `
-    SELECT p.*, o.name AS officer_name, o.officer_code
+    SELECT p.*, o.name AS officer_name, o.officer_code,
+      o.payment_method AS officer_payment_method,
+      o.account_name, o.bank_name, o.account_number, o.iban, o.payment_mobile, o.bank_details
     FROM salary_payments p
     JOIN officers o ON o.id = p.officer_id
     ${where.length ? "WHERE " + where.join(" AND ") : ""}
@@ -1735,7 +1817,13 @@ app.get("/api/export/officers", (_req, res) => {
       HourlyRate: salaryRates(o, settings()).hourly_rate,
       WorkingHoursPerDay: salaryRates(o, settings()).working_hours_per_day,
       SalaryType: o.salary_type,
-      BankDetails: o.bank_details,
+      PaymentMethod: paymentMethodLabel(o.payment_method),
+      BankName: o.bank_name,
+      AccountName: o.account_name,
+      AccountNumber: o.account_number,
+      IBAN: o.iban,
+      PaymentMobile: o.payment_mobile,
+      BankDetails: formatPaymentAccountSummary(o) || o.bank_details,
       EmergencyContact: o.emergency_contact,
       Status: o.status,
       LeavingDate: o.leaving_date,

@@ -151,6 +151,7 @@ export default function Officers() {
                   <td><Badge status={row.status} /></td>
                   <td className="row-actions" onClick={(e) => e.stopPropagation()}>
                     <button className="btn btn-ghost" onClick={() => navigate(`/officers/${row.id}`)}>View</button>
+                    <button className="btn btn-ghost" onClick={() => navigate(`/officers/${row.id}#payment`)}>Payment details</button>
                     {isAdmin ? <button className="btn btn-ghost" onClick={() => navigate(`/officers/${row.id}/edit`)}>Edit</button> : null}
                     {isAdmin && row.status === "active" ? (
                       <button className="btn btn-danger" onClick={() => setDeactivate(row)}>Deactivate</button>

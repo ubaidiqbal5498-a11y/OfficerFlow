@@ -1,4 +1,5 @@
 const { EMPLOYMENT_STATUSES, PAYMENT_METHODS, SALARY_STATUSES } = require("./hr");
+const { normalizePaymentMethod, validatePaymentAccount } = require("./paymentAccount");
 
 function required(value, label) {
   if (value == null || String(value).trim() === "") {
@@ -47,9 +48,13 @@ function validateOfficer(body, { isUpdate = false } = {}) {
   if (body.status && body.status !== "active" && !body.leaving_date && !isUpdate) {
     errors.push("Leaving date is required when the officer is not active.");
   }
-  if (body.payment_method && !PAYMENT_METHODS.some((m) => m.id === body.payment_method)) {
-    errors.push("Payment method is invalid.");
+  if (body.payment_method) {
+    const method = normalizePaymentMethod(body.payment_method);
+    if (!PAYMENT_METHODS.some((m) => m.id === method || m.id === body.payment_method)) {
+      errors.push("Payment method is invalid.");
+    }
   }
+  errors.push(...validatePaymentAccount(body));
   if (body.salary_status && !SALARY_STATUSES.some((s) => s.id === body.salary_status)) {
     errors.push("Salary status is invalid.");
   }
