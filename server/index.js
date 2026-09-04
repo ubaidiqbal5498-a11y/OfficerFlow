@@ -27,6 +27,7 @@ const {
   EMPLOYMENT_STATUSES,
   ACCOUNT_PAYMENT_METHODS,
   PAKISTANI_BANKS,
+  SALARY_PAYOUT_METHODS,
   SALARY_STATUSES,
   DOCUMENT_TYPES,
   isActiveEmployment,
@@ -38,6 +39,8 @@ const {
   composeBankDetails,
   formatPaymentAccountSummary,
   normalizePaymentMethod,
+  salaryPayoutFromOfficer,
+  payoutAccountDisplay,
 } = require("./lib/paymentAccount");
 const { applySecurity, clientIp } = require("./lib/security");
 const { applyAdminPasswordReset } = require("./lib/adminPasswordReset");
@@ -116,6 +119,10 @@ function paymentAccountValues(body, previous = {}) {
     account_number: account.account_number || null,
     iban: account.iban || null,
     payment_mobile: account.payment_mobile || null,
+    nayapay_account_name: account.nayapay_account_name || null,
+    nayapay_number: account.nayapay_number || null,
+    nayapay_iban: account.nayapay_iban || null,
+    easypaisa_iban: account.easypaisa_iban || null,
   };
   values.bank_details =
     composeBankDetails({ ...values, bank_details: merged.bank_details }) ||
@@ -474,6 +481,7 @@ app.get("/api/lookups", (req, res) => {
     statuses: ATTENDANCE_STATUSES,
     employment_statuses: EMPLOYMENT_STATUSES,
     payment_methods: ACCOUNT_PAYMENT_METHODS,
+    salary_payout_methods: SALARY_PAYOUT_METHODS,
     banks: PAKISTANI_BANKS,
     salary_statuses: SALARY_STATUSES,
     document_types: DOCUMENT_TYPES,
@@ -835,8 +843,9 @@ app.post("/api/officers", (req, res) => {
           father_name, date_of_birth, whatsapp, email, address,
           emergency_contact_name, emergency_contact_phone, supervisor_id,
           payment_method, salary_status, salary_effective_date,
-          account_name, bank_name, account_number, iban, payment_mobile
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          account_name, bank_name, account_number, iban, payment_mobile,
+          nayapay_account_name, nayapay_number, nayapay_iban, easypaisa_iban
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         body.name.trim(),
@@ -873,7 +882,11 @@ app.post("/api/officers", (req, res) => {
         pay.bank_name,
         pay.account_number,
         pay.iban,
-        pay.payment_mobile
+        pay.payment_mobile,
+        pay.nayapay_account_name,
+        pay.nayapay_number,
+        pay.nayapay_iban,
+        pay.easypaisa_iban
       );
     const id = Number(info.lastInsertRowid);
     insertSalaryHistory({
@@ -922,6 +935,7 @@ app.put("/api/officers/:id", (req, res) => {
           emergency_contact_name=?, emergency_contact_phone=?, supervisor_id=?,
           payment_method=?, salary_status=?, salary_effective_date=?,
           account_name=?, bank_name=?, account_number=?, iban=?, payment_mobile=?,
+          nayapay_account_name=?, nayapay_number=?, nayapay_iban=?, easypaisa_iban=?,
           updated_at=datetime('now','localtime')
          WHERE id=?`
       )
@@ -961,6 +975,10 @@ app.put("/api/officers/:id", (req, res) => {
         pay.account_number,
         pay.iban,
         pay.payment_mobile,
+        pay.nayapay_account_name,
+        pay.nayapay_number,
+        pay.nayapay_iban,
+        pay.easypaisa_iban,
         req.params.id
       );
 
@@ -1022,7 +1040,8 @@ app.put("/api/officers/:id/payment-account", (req, res) => {
     .prepare(
       `UPDATE officers SET
         payment_method=?, account_name=?, bank_name=?, account_number=?, iban=?,
-        payment_mobile=?, bank_details=?, updated_at=datetime('now','localtime')
+        payment_mobile=?, nayapay_account_name=?, nayapay_number=?, nayapay_iban=?,
+        easypaisa_iban=?, bank_details=?, updated_at=datetime('now','localtime')
        WHERE id=?`
     )
     .run(
@@ -1032,6 +1051,10 @@ app.put("/api/officers/:id/payment-account", (req, res) => {
       pay.account_number,
       pay.iban,
       pay.payment_mobile,
+      pay.nayapay_account_name,
+      pay.nayapay_number,
+      pay.nayapay_iban,
+      pay.easypaisa_iban,
       pay.bank_details,
       existing.id
     );
@@ -1397,13 +1420,16 @@ function calculateSalaryDraft(officerId, year, month) {
   }
 
   let bonuses = 0;
+  let overtime_amount = 0;
   if (s.overtime_pay_enabled === "true") {
     const otRate = Number(s.overtime_rate_per_hour) > 0 ? Number(s.overtime_rate_per_hour) : rates.hourly_rate;
-    bonuses += roundHours(stats.overtime * otRate);
+    overtime_amount = roundHours(stats.overtime * otRate);
+    bonuses += overtime_amount;
   }
 
   const net = roundHours(basic - deductions + bonuses);
   const workingDays = stats.present + stats.absent + stats.half_day + stats.leave;
+  const payout_method = salaryPayoutFromOfficer(officer);
   return {
     officer_id: officerId,
     month: Number(month),
@@ -1411,10 +1437,12 @@ function calculateSalaryDraft(officerId, year, month) {
     basic_salary: roundHours(basic),
     working_days: workingDays,
     present_days: presentEquivalent,
+    present_full_days: stats.present,
     absent_days: stats.absent,
     leave_days: stats.leave,
     half_days: stats.half_day,
     overtime_hours: stats.overtime,
+    overtime_amount,
     deductions: roundHours(deductions),
     bonuses: roundHours(bonuses),
     net_salary: net,
@@ -1423,14 +1451,20 @@ function calculateSalaryDraft(officerId, year, month) {
     daily_salary: rates.daily_salary,
     hourly_rate: rates.hourly_rate,
     working_hours_per_day: rates.working_hours_per_day,
-    payment_method: normalizePaymentMethod(officer.payment_method) || officer.payment_method || null,
+    payment_method: payout_method,
+    officer_payment_method: normalizePaymentMethod(officer.payment_method) || officer.payment_method || null,
     payment_method_label: paymentMethodLabel(officer.payment_method),
     payment_account_summary: formatPaymentAccountSummary(officer),
+    payout_account: payoutAccountDisplay(officer, payout_method),
     account_name: officer.account_name || null,
     bank_name: officer.bank_name || null,
     account_number: officer.account_number || null,
     iban: officer.iban || null,
     payment_mobile: officer.payment_mobile || null,
+    nayapay_account_name: officer.nayapay_account_name || null,
+    nayapay_number: officer.nayapay_number || null,
+    nayapay_iban: officer.nayapay_iban || null,
+    easypaisa_iban: officer.easypaisa_iban || null,
   };
 }
 
@@ -1493,7 +1527,8 @@ app.get("/api/salary/payments", (req, res) => {
   const sql = `
     SELECT p.*, o.name AS officer_name, o.officer_code,
       o.payment_method AS officer_payment_method,
-      o.account_name, o.bank_name, o.account_number, o.iban, o.payment_mobile, o.bank_details
+      o.account_name, o.bank_name, o.account_number, o.iban, o.payment_mobile, o.bank_details,
+      o.nayapay_account_name, o.nayapay_number, o.nayapay_iban, o.easypaisa_iban
     FROM salary_payments p
     JOIN officers o ON o.id = p.officer_id
     ${where.length ? "WHERE " + where.join(" AND ") : ""}
@@ -1720,9 +1755,63 @@ app.get("/api/dashboard", (req, res) => {
 
     const denom = Number(monthAgg.denom) || 0;
     const earned = Number(monthAgg.earned) || 0;
+    const totalOfficers = db().prepare("SELECT COUNT(*) AS c FROM officers").get()?.c || 0;
+    const estimatedSalary =
+      db().prepare("SELECT IFNULL(SUM(salary),0) AS total FROM officers WHERE status = 'active'").get()?.total || 0;
+    const todayHours =
+      db()
+        .prepare(
+          `SELECT
+             IFNULL(SUM(working_hours),0) AS hours,
+             IFNULL(SUM(overtime_hours),0) AS overtime
+           FROM attendance WHERE work_date = ?`
+        )
+        .get(today) || {};
+    const todayRoster = db()
+      .prepare(
+        `SELECT o.id, o.name, o.officer_code, a.status, a.check_in, a.check_out,
+                a.working_hours, a.overtime_hours, a.is_late
+         FROM officers o
+         LEFT JOIN attendance a ON a.officer_id = o.id AND a.work_date = ?
+         WHERE o.status = 'active'
+           AND o.joining_date <= ?
+           AND (o.leaving_date IS NULL OR o.leaving_date >= ?)
+         ORDER BY o.name`
+      )
+      .all(today, today, today);
+    const recentActivity = db()
+      .prepare(
+        `SELECT a.id, a.work_date, a.status, a.check_in, a.check_out, a.working_hours, a.overtime_hours,
+                o.name AS officer_name, o.officer_code
+         FROM attendance a
+         JOIN officers o ON o.id = a.officer_id
+         ORDER BY a.work_date DESC, a.id DESC
+         LIMIT 12`
+      )
+      .all();
+    const officerHours = db()
+      .prepare(
+        `SELECT o.id, o.name, o.officer_code,
+                IFNULL(SUM(a.working_hours),0) AS hours,
+                IFNULL(SUM(a.overtime_hours),0) AS overtime
+         FROM officers o
+         LEFT JOIN attendance a ON a.officer_id = o.id AND a.work_date BETWEEN ? AND ?
+         WHERE o.status = 'active'
+         GROUP BY o.id
+         ORDER BY o.name`
+      )
+      .all(range.start, range.end);
+
     res.json({
       today,
       todayStats,
+      total_officers: Number(totalOfficers) || 0,
+      estimated_salary: roundHours(Number(estimatedSalary) || 0),
+      today_hours: roundHours(Number(todayHours.hours) || 0),
+      today_overtime: roundHours(Number(todayHours.overtime) || 0),
+      today_roster: todayRoster || [],
+      recent_activity: recentActivity || [],
+      officer_hours: officerHours || [],
       monthly: {
         active: activeCount,
         attendance_percentage: denom ? roundHours((earned / denom) * 100) : 0,
@@ -1731,6 +1820,7 @@ app.get("/api/dashboard", (req, res) => {
         salary_total: roundHours(Number(salaryAgg.total) || 0),
         salary_paid: roundHours(Number(salaryAgg.paid) || 0),
         salary_pending: roundHours(Number(salaryAgg.pending) || 0),
+        estimated_salary: roundHours(Number(estimatedSalary) || 0),
       },
       trend: trend || [],
     });
@@ -1823,6 +1913,10 @@ app.get("/api/export/officers", (_req, res) => {
       AccountNumber: o.account_number,
       IBAN: o.iban,
       PaymentMobile: o.payment_mobile,
+      NayaPayAccountName: o.nayapay_account_name,
+      NayaPayNumber: o.nayapay_number,
+      NayaPayIBAN: o.nayapay_iban,
+      EasypaisaIBAN: o.easypaisa_iban,
       BankDetails: formatPaymentAccountSummary(o) || o.bank_details,
       EmergencyContact: o.emergency_contact,
       Status: o.status,

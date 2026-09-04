@@ -91,6 +91,10 @@ export default function OfficerForm() {
           account_number: row.account_number || "",
           iban: row.iban || "",
           payment_mobile: row.payment_mobile || "",
+          nayapay_account_name: row.nayapay_account_name || "",
+          nayapay_number: row.nayapay_number || "",
+          nayapay_iban: row.nayapay_iban || "",
+          easypaisa_iban: row.easypaisa_iban || "",
           salary_status: row.salary_status || "active",
         });
         setExistingDocs(await api.documents(id));
@@ -172,6 +176,10 @@ export default function OfficerForm() {
         account_number: form.account_number,
         iban: form.iban,
         payment_mobile: form.payment_mobile,
+        nayapay_account_name: form.nayapay_account_name,
+        nayapay_number: form.nayapay_number,
+        nayapay_iban: form.nayapay_iban,
+        easypaisa_iban: form.easypaisa_iban,
       };
       let saved;
       if (editing) saved = await api.updateOfficer(id, payload);
@@ -207,6 +215,10 @@ export default function OfficerForm() {
         account_number: form.account_number,
         iban: form.iban,
         payment_mobile: form.payment_mobile,
+        nayapay_account_name: form.nayapay_account_name,
+        nayapay_number: form.nayapay_number,
+        nayapay_iban: form.nayapay_iban,
+        easypaisa_iban: form.easypaisa_iban,
       });
       toast("Payment details saved.");
     } catch (err) {
@@ -446,6 +458,11 @@ export default function OfficerForm() {
               <h3>Payment account</h3>
               <p>{paymentMethodLabel(form.payment_method)}</p>
               <p>{formatPaymentAccount(form) || "No payment account yet"}</p>
+              {form.iban ? <p>Bank IBAN {form.iban}</p> : null}
+              {form.nayapay_number ? <p>NayaPay {form.nayapay_account_name} · {form.nayapay_number}</p> : null}
+              {form.easypaisa_iban || (form.payment_method === "easypaisa" && form.payment_mobile) ? (
+                <p>Easypaisa {form.payment_mobile} {form.easypaisa_iban}</p>
+              ) : null}
             </div>
             <div>
               <h3>Salary</h3>

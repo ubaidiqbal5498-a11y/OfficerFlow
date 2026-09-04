@@ -7,11 +7,18 @@ export const EMPLOYMENT_STATUSES = [
 
 export const PAYMENT_METHODS = [
   { id: "bank_account", label: "Bank Account" },
+  { id: "nayapay", label: "NayaPay" },
   { id: "easypaisa", label: "Easypaisa" },
   { id: "jazzcash", label: "JazzCash" },
   { id: "cash", label: "Cash" },
   { id: "other", label: "Other" },
   { id: "bank_transfer", label: "Bank Account" },
+];
+
+export const SALARY_PAYOUT_METHODS = [
+  { id: "Bank", label: "Bank" },
+  { id: "NayaPay", label: "NayaPay" },
+  { id: "Cash", label: "Cash" },
 ];
 
 export const SALARY_STATUSES = [

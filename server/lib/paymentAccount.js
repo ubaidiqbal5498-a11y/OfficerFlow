@@ -20,8 +20,15 @@ const PAKISTANI_BANKS = [
 
 const ACCOUNT_PAYMENT_METHODS = [
   { id: "bank_account", label: "Bank Account" },
+  { id: "nayapay", label: "NayaPay" },
   { id: "easypaisa", label: "Easypaisa" },
   { id: "jazzcash", label: "JazzCash" },
+];
+
+const SALARY_PAYOUT_METHODS = [
+  { id: "Bank", label: "Bank" },
+  { id: "NayaPay", label: "NayaPay" },
+  { id: "Cash", label: "Cash" },
 ];
 
 const LEGACY_PAYMENT_METHODS = [
@@ -54,8 +61,20 @@ function isWalletMethod(id) {
   return method === "easypaisa" || method === "jazzcash";
 }
 
+function isEasypaisaMethod(id) {
+  return normalizePaymentMethod(id) === "easypaisa";
+}
+
+function isJazzCashMethod(id) {
+  return normalizePaymentMethod(id) === "jazzcash";
+}
+
+function isNayaPayMethod(id) {
+  return normalizePaymentMethod(id) === "nayapay";
+}
+
 function needsPaymentAccount(id) {
-  return isBankMethod(id) || isWalletMethod(id);
+  return isBankMethod(id) || isWalletMethod(id) || isNayaPayMethod(id);
 }
 
 function normalizeIban(value) {
@@ -87,6 +106,10 @@ function paymentAccountFromBody(body = {}) {
     account_number: trim(body.account_number),
     iban: normalizeIban(body.iban),
     payment_mobile: normalizeMobile(body.payment_mobile || body.mobile_number),
+    nayapay_account_name: trim(body.nayapay_account_name),
+    nayapay_number: normalizeMobile(body.nayapay_number || body.nayapay_mobile),
+    nayapay_iban: normalizeIban(body.nayapay_iban),
+    easypaisa_iban: normalizeIban(body.easypaisa_iban),
   };
 }
 
@@ -102,6 +125,12 @@ function validatePaymentAccount(body = {}) {
       errors.push("Choose a bank from the list.");
     }
     if (!account.account_number) errors.push("Account number is required for bank accounts.");
+  } else if (isNayaPayMethod(method)) {
+    if (!account.nayapay_account_name) errors.push("NayaPay account name is required.");
+    if (!account.nayapay_number) errors.push("NayaPay number / mobile number is required.");
+    else if (!isValidWalletMobile(account.nayapay_number)) {
+      errors.push("Enter a valid NayaPay mobile number, for example 03XXXXXXXXX.");
+    }
   } else if (isWalletMethod(method)) {
     if (!account.account_name) errors.push("Account name is required.");
     if (!account.payment_mobile) errors.push("Mobile number is required for Easypaisa and JazzCash.");
@@ -110,7 +139,13 @@ function validatePaymentAccount(body = {}) {
     }
   }
   if (account.iban && !isValidIban(account.iban)) {
-    errors.push("IBAN format is not valid. Pakistani IBANs look like PK36HABB0000001234567890.");
+    errors.push("Bank IBAN format is not valid. Pakistani IBANs look like PK36HABB0000001234567890.");
+  }
+  if (account.nayapay_iban && !isValidIban(account.nayapay_iban)) {
+    errors.push("NayaPay IBAN format is not valid.");
+  }
+  if (account.easypaisa_iban && !isValidIban(account.easypaisa_iban)) {
+    errors.push("Easypaisa IBAN format is not valid.");
   }
   return errors;
 }
@@ -123,9 +158,16 @@ function formatPaymentAccountSummary(row = {}) {
     if (trim(row.iban)) parts.push(trim(row.iban));
     return parts.filter(Boolean).join(" · ");
   }
-  if (isWalletMethod(method)) {
-    const label = method === "easypaisa" ? "Easypaisa" : "JazzCash";
-    return [label, name, trim(row.payment_mobile)].filter(Boolean).join(" · ");
+  if (isNayaPayMethod(method)) {
+    return ["NayaPay", trim(row.nayapay_account_name), trim(row.nayapay_number), trim(row.nayapay_iban)]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  if (isEasypaisaMethod(method)) {
+    return ["Easypaisa", name, trim(row.payment_mobile), trim(row.easypaisa_iban)].filter(Boolean).join(" · ");
+  }
+  if (isJazzCashMethod(method)) {
+    return ["JazzCash", name, trim(row.payment_mobile)].filter(Boolean).join(" · ");
   }
   return trim(row.bank_details);
 }
@@ -134,14 +176,44 @@ function composeBankDetails(row = {}, previous = "") {
   return formatPaymentAccountSummary(row) || trim(previous) || null;
 }
 
+function salaryPayoutFromOfficer(officer = {}) {
+  const method = normalizePaymentMethod(officer.payment_method);
+  if (method === "nayapay") return "NayaPay";
+  if (method === "cash" || isWalletMethod(method)) return "Cash";
+  if (isBankMethod(method)) return "Bank";
+  return "Bank";
+}
+
+function payoutAccountDisplay(officer = {}, payout = "") {
+  const method = payout || salaryPayoutFromOfficer(officer);
+  if (method === "Cash") {
+    return formatPaymentAccountSummary(officer) || "Cash";
+  }
+  if (method === "NayaPay") {
+    return [trim(officer.nayapay_account_name), trim(officer.nayapay_number), trim(officer.nayapay_iban)]
+      .filter(Boolean)
+      .join(" · ") || "NayaPay";
+  }
+  if (method === "Bank") {
+    return [trim(officer.bank_name), trim(officer.account_name), trim(officer.account_number), trim(officer.iban)]
+      .filter(Boolean)
+      .join(" · ") || "Bank";
+  }
+  return formatPaymentAccountSummary(officer) || trim(officer.bank_details);
+}
+
 module.exports = {
   PAKISTANI_BANKS,
   ACCOUNT_PAYMENT_METHODS,
+  SALARY_PAYOUT_METHODS,
   LEGACY_PAYMENT_METHODS,
   PAYMENT_METHOD_ALIASES,
   normalizePaymentMethod,
   isBankMethod,
   isWalletMethod,
+  isEasypaisaMethod,
+  isJazzCashMethod,
+  isNayaPayMethod,
   needsPaymentAccount,
   normalizeIban,
   normalizeMobile,
@@ -151,4 +223,6 @@ module.exports = {
   validatePaymentAccount,
   formatPaymentAccountSummary,
   composeBankDetails,
+  salaryPayoutFromOfficer,
+  payoutAccountDisplay,
 };

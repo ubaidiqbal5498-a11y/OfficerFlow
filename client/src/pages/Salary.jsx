@@ -3,7 +3,8 @@ import { api } from "../api";
 import { useToast } from "../components/Toast.jsx";
 import { Field } from "../components/Ui.jsx";
 import { MONTHS, formatDuration, formatMoney, todayISO } from "../lib/format.js";
-import { formatPaymentAccount, paymentMethodLabel } from "../lib/paymentAccount.js";
+import { SALARY_PAYOUT_METHODS } from "../lib/constants.js";
+import { payoutAccountDisplay, salaryPayoutFromOfficer } from "../lib/paymentAccount.js";
 import { useAuth } from "../auth.jsx";
 
 export default function Salary() {
@@ -45,14 +46,25 @@ export default function Salary() {
     try {
       if (officerId) {
         const draft = await api.calculate({ officer_id: officerId, year, month });
-        setDrafts([draft]);
+        setDrafts([withPayout(draft)]);
       } else {
-        setDrafts(await api.calculateAll({ year, month }));
+        setDrafts((await api.calculateAll({ year, month })).map(withPayout));
       }
       toast("Salary calculated from attendance. Review deductions and bonuses before saving.");
     } catch (e) {
       toast(e.message, "error");
     }
+  }
+
+  function withPayout(row) {
+    const payment_method = row.payment_method === "Bank" || row.payment_method === "NayaPay" || row.payment_method === "Cash"
+      ? row.payment_method
+      : salaryPayoutFromOfficer(row);
+    return {
+      ...row,
+      payment_method,
+      payout_account: payoutAccountDisplay(row, payment_method),
+    };
   }
 
   function editDraft(index, field, value) {
@@ -61,6 +73,9 @@ export default function Salary() {
         if (i !== index) return row;
         const next = { ...row, [field]: value };
         next.net_salary = Number(next.basic_salary || 0) - Number(next.deductions || 0) + Number(next.bonuses || 0);
+        if (field === "payment_method") {
+          next.payout_account = payoutAccountDisplay(next, value);
+        }
         return next;
       })
     );
@@ -82,7 +97,7 @@ export default function Salary() {
         ...row,
         paid: 1,
         payment_date: row.payment_date || todayISO(),
-        payment_method: row.payment_method || row.payment_method_label || "Bank Account",
+        payment_method: row.payment_method || salaryPayoutFromOfficer(row),
       });
       toast("Marked as paid.");
       await loadPayments();
@@ -104,13 +119,23 @@ export default function Salary() {
   }
 
   const officerName = (id) => officers.find((o) => o.id === id)?.name || id;
+  const totals = payments.reduce(
+    (acc, row) => {
+      acc.net += Number(row.net_salary) || 0;
+      acc.ot += Number(row.overtime_hours) || 0;
+      if (row.paid) acc.paid += Number(row.net_salary) || 0;
+      else acc.pending += Number(row.net_salary) || 0;
+      return acc;
+    },
+    { net: 0, paid: 0, pending: 0, ot: 0 }
+  );
 
   return (
     <>
       <div className="page-head">
         <div>
           <h2>Salary</h2>
-          <p>{isAdmin ? "Calculate from attendance, edit deductions and bonuses, then record payment. Old salary amounts are never overwritten." : "View saved salary records. Processing and salary changes are admin-only."}</p>
+          <p>{isAdmin ? "Calculate from attendance, choose Bank / NayaPay / Cash, then record payment. Old salary amounts are never overwritten." : "View saved salary records. Processing and salary changes are admin-only."}</p>
         </div>
         {isAdmin ? <button className="btn btn-primary" onClick={generate}>Calculate salary</button> : null}
       </div>
@@ -134,14 +159,34 @@ export default function Salary() {
         </div>
       </div>
 
+      <div className="grid-stats">
+        <div className="stat navy"><span>Net (saved)</span><strong>{formatMoney(totals.net)}</strong></div>
+        <div className="stat green"><span>Paid</span><strong>{formatMoney(totals.paid)}</strong></div>
+        <div className="stat amber"><span>Pending</span><strong>{formatMoney(totals.pending)}</strong></div>
+        <div className="stat blue"><span>OT hours (saved)</span><strong>{formatDuration(totals.ot)}</strong></div>
+      </div>
+
       {isAdmin && drafts.length > 0 && (
         <div className="card table-wrap" style={{ marginBottom: 16 }}>
-          <div className="card-pad"><strong>Calculated salary — deductions and bonuses are editable</strong></div>
+          <div className="card-pad"><strong>Calculated salary</strong></div>
           <table>
             <thead>
               <tr>
-                <th>Officer</th><th>Basic</th><th>Present</th><th>Absent</th><th>Leave</th><th>Half</th>
-                <th>OT hrs</th><th>Deductions</th><th>Bonuses</th><th>Net</th><th>Pay to</th><th></th>
+                <th>Officer</th>
+                <th>Basic</th>
+                <th>Working days</th>
+                <th>Present</th>
+                <th>Absent</th>
+                <th>Leave</th>
+                <th>Half</th>
+                <th>OT hrs</th>
+                <th>OT amount</th>
+                <th>Deductions</th>
+                <th>Bonuses</th>
+                <th>Net</th>
+                <th>Method</th>
+                <th>Account / IBAN</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -149,11 +194,13 @@ export default function Salary() {
                 <tr key={row.officer_id}>
                   <td>{officerName(row.officer_id)}</td>
                   <td>{formatMoney(row.basic_salary)}</td>
-                  <td>{row.present_days}</td>
+                  <td>{row.working_days}</td>
+                  <td>{row.present_full_days ?? row.present_days}</td>
                   <td>{row.absent_days}</td>
                   <td>{row.leave_days}</td>
                   <td>{row.half_days}</td>
                   <td>{formatDuration(row.overtime_hours)}</td>
+                  <td>{formatMoney(row.overtime_amount)}</td>
                   <td>
                     <input type="number" value={row.deductions} onChange={(e) => editDraft(index, "deductions", e.target.value)} />
                   </td>
@@ -161,7 +208,14 @@ export default function Salary() {
                     <input type="number" value={row.bonuses} onChange={(e) => editDraft(index, "bonuses", e.target.value)} />
                   </td>
                   <td><strong>{formatMoney(row.net_salary)}</strong></td>
-                  <td>{formatPaymentAccount(row) || paymentMethodLabel(row.payment_method)}</td>
+                  <td>
+                    <select value={row.payment_method || "Bank"} onChange={(e) => editDraft(index, "payment_method", e.target.value)}>
+                      {SALARY_PAYOUT_METHODS.map((m) => (
+                        <option key={m.id} value={m.id}>{m.label}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>{payoutAccountDisplay(row, row.payment_method)}</td>
                   <td className="row-actions">
                     <button className="btn btn-ghost" onClick={() => saveDraft(row)}>Save</button>
                     <button className="btn btn-primary" onClick={() => markPaid({ ...row, paid: 1 })}>Mark paid</button>
@@ -178,25 +232,29 @@ export default function Salary() {
         <table>
           <thead>
             <tr>
-              <th>Officer</th><th>Period</th><th>Basic</th><th>Deductions</th><th>Bonuses</th>
-              <th>Net</th><th>Status</th><th>Payment date</th><th>Method</th><th>Account</th>
+              <th>Officer</th><th>Period</th><th>Basic</th><th>Present</th><th>Absent</th><th>Leave</th>
+              <th>Half</th><th>OT hrs</th><th>Deductions</th><th>Net</th><th>Status</th>
+              <th>Method</th><th>Account / IBAN</th>
             </tr>
           </thead>
           <tbody>
             {payments.length === 0 ? (
-              <tr><td colSpan="10">No salary records for this period yet.</td></tr>
+              <tr><td colSpan="13">No salary records for this period yet.</td></tr>
             ) : payments.map((row) => (
               <tr key={row.id}>
                 <td>{row.officer_name}</td>
                 <td>{row.month}/{row.year}</td>
                 <td>{formatMoney(row.basic_salary)}</td>
+                <td>{row.present_days}</td>
+                <td>{row.absent_days}</td>
+                <td>{row.leave_days}</td>
+                <td>{row.half_days}</td>
+                <td>{formatDuration(row.overtime_hours)}</td>
                 <td>{formatMoney(row.deductions)}</td>
-                <td>{formatMoney(row.bonuses)}</td>
                 <td>{formatMoney(row.net_salary)}</td>
                 <td>{row.paid ? "Paid" : "Pending"}</td>
-                <td>{row.payment_date || "—"}</td>
-                <td>{row.payment_method || paymentMethodLabel(row.officer_payment_method) || "—"}</td>
-                <td>{formatPaymentAccount(row) || row.bank_details || "—"}</td>
+                <td>{row.payment_method || "—"}</td>
+                <td>{payoutAccountDisplay(row, row.payment_method) || row.bank_details || "—"}</td>
               </tr>
             ))}
           </tbody>
@@ -206,7 +264,7 @@ export default function Salary() {
       {isAdmin ? (
       <div className="card card-pad">
         <h3>Add salary change</h3>
-        <p style={{ color: "#5c6b80" }}>This keeps the previous salary. Select an officer, then record the new amount and effective date.</p>
+        <p className="muted">This keeps the previous salary. Select an officer, then record the new amount and effective date.</p>
         <form className="filters" onSubmit={addHistory} style={{ marginTop: 12 }}>
           <Field label="Amount">
             <input type="number" min="0" required value={histForm.amount} onChange={(e) => setHistForm((f) => ({ ...f, amount: e.target.value }))} />

@@ -154,6 +154,7 @@ export default function DailyAttendance() {
           <div className="stat amber"><span>Half day</span><strong>{summary.half_day}</strong></div>
           <div className="stat purple"><span>Leave</span><strong>{summary.leave}</strong></div>
           <div className="stat navy"><span>Off</span><strong>{summary.off}</strong></div>
+          <div className="stat navy"><span>Holiday</span><strong>{summary.holiday}</strong></div>
         </div>
       </div>
 

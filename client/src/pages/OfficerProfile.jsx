@@ -51,6 +51,10 @@ export default function OfficerProfile() {
     account_number: "",
     iban: "",
     payment_mobile: "",
+    nayapay_account_name: "",
+    nayapay_number: "",
+    nayapay_iban: "",
+    easypaisa_iban: "",
   });
   const [payErrors, setPayErrors] = useState({});
   const [savingPay, setSavingPay] = useState(false);
@@ -90,6 +94,10 @@ export default function OfficerProfile() {
       account_number: row.account_number || "",
       iban: row.iban || "",
       payment_mobile: row.payment_mobile || "",
+      nayapay_account_name: row.nayapay_account_name || "",
+      nayapay_number: row.nayapay_number || "",
+      nayapay_iban: row.nayapay_iban || "",
+      easypaisa_iban: row.easypaisa_iban || "",
     });
     setPayReady(true);
   }, [data, payReady]);
@@ -139,6 +147,10 @@ export default function OfficerProfile() {
         account_number: saved.account_number || "",
         iban: saved.iban || "",
         payment_mobile: saved.payment_mobile || "",
+        nayapay_account_name: saved.nayapay_account_name || "",
+        nayapay_number: saved.nayapay_number || "",
+        nayapay_iban: saved.nayapay_iban || "",
+        easypaisa_iban: saved.easypaisa_iban || "",
       });
       toast("Payment details saved.");
       await load();
@@ -226,6 +238,32 @@ export default function OfficerProfile() {
 
       {tab === "overview" && (
         <>
+          <div className="dash-grid" style={{ marginBottom: 16 }}>
+            <div className="card card-pad">
+              <h3 style={{ marginTop: 0 }}>Officer details</h3>
+              {kv("Name", officer.name)}
+              {kv("Phone", officer.phone)}
+              {kv("Joining date", formatDate(officer.joining_date))}
+              {kv("Salary", formatMoney(officer.salary))}
+              {kv("Attendance", `${stats.attendance_percentage}%`)}
+              {kv("Working hours", formatDuration(stats.hours))}
+              {kv("Overtime", formatDuration(stats.overtime))}
+            </div>
+            <div className="card card-pad">
+              <h3 style={{ marginTop: 0 }}>Bank account</h3>
+              {kv("Bank name", officer.bank_name)}
+              {kv("Account title", officer.account_name)}
+              {kv("Account number", officer.account_number)}
+              {kv("Bank IBAN", officer.iban)}
+              <h3>NayaPay</h3>
+              {kv("Account name", officer.nayapay_account_name)}
+              {kv("Number / mobile", officer.nayapay_number)}
+              {kv("NayaPay IBAN", officer.nayapay_iban)}
+              <h3>Easypaisa</h3>
+              {kv("Mobile number", officer.payment_mobile)}
+              {kv("Easypaisa IBAN", officer.easypaisa_iban)}
+            </div>
+          </div>
           {paymentSection()}
           <h3>Attendance summary</h3>
           <div className="grid-stats">
@@ -341,11 +379,15 @@ export default function OfficerProfile() {
             {kv("Hourly rate", formatMoney(officer.hourly_rate))}
             {kv("Salary effective date", formatDate(officer.salary_effective_date || data.salaryHistory[0]?.effective_date))}
             {kv("Payment method", paymentMethodLabel(officer.payment_method))}
-            {kv("Account title", officer.account_name)}
             {kv("Bank name", officer.bank_name)}
-            {kv("Account number", officer.account_number)}
-            {kv("IBAN", officer.iban)}
-            {kv("Mobile number", officer.payment_mobile)}
+            {kv("Bank account title", officer.account_name)}
+            {kv("Bank account number", officer.account_number)}
+            {kv("Bank IBAN", officer.iban)}
+            {kv("NayaPay account name", officer.nayapay_account_name)}
+            {kv("NayaPay number", officer.nayapay_number)}
+            {kv("NayaPay IBAN", officer.nayapay_iban)}
+            {kv("Easypaisa / JazzCash mobile", officer.payment_mobile)}
+            {kv("Easypaisa IBAN", officer.easypaisa_iban)}
           </div>
           <div className="card table-wrap">
             <div className="card-pad"><strong>Salary history</strong><p style={{ margin: "6px 0 0", color: "#5c6b80" }}>Previous amounts are never overwritten.</p></div>
